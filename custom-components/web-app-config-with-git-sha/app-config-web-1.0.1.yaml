@@ -2,6 +2,8 @@ apiVersion: supply-chain.apps.tanzu.vmware.com/v1alpha1
 kind: Component
 metadata:
     name: app-config-web-1.0.1
+    labels:
+      supply-chain.apps.tanzu.vmware.com/catalog: tanzu
 spec:
     config:
         - path: spec.registry
