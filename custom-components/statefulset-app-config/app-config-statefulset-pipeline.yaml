@@ -1,0 +1,368 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+    name: app-config-statefulset
+spec:
+    description: Generates configuration for a statefulset application from a Conventions PodIntent.
+    params:
+        - description: URL of the OCI image containing the Conventions PodIntent.
+          name: config-url
+          type: string
+        - description: Workload name.
+          name: workload-name
+          type: string
+        - description: Workload labels.
+          name: workload-labels
+          type: string
+        - description: Workload annotations.
+          name: workload-annotations
+          type: string
+    results:
+        - description: URL of the resulting OCI image containing raw YAML config files.
+          name: url
+          type: string
+          value: $(tasks.store.results.url)
+        - description: SHA of the resulting OCI image containing raw YAML config files.
+          name: digest
+          type: string
+          value: $(tasks.store.results.digest)
+        - description: URL of the resulting OCI image containing YTT files.
+          name: url-overlay
+          type: string
+          value: $(tasks.store-overlay.results.url)
+        - description: SHA of the resulting OCI image containing YTT files.
+          name: digest-overlay
+          type: string
+          value: $(tasks.store-overlay.results.digest)
+    tasks:
+        - name: fetch-conventions
+          params:
+            - name: url
+              value: $(params.config-url)
+          taskRef:
+            kind: Task
+            name: fetch-tgz-content-oci
+          workspaces:
+            - name: store
+              workspace: shared-data
+        - name: statefulset-template
+          params:
+            - name: workload-name
+              value: $(params.workload-name)
+            - name: workload-labels
+              value: $(params.workload-labels)
+            - name: workload-annotations
+              value: $(params.workload-annotations)
+          runAfter:
+            - fetch-conventions
+          taskSpec:
+            metadata: {}
+            params:
+                - name: workload-name
+                  type: string
+                - name: workload-labels
+                  type: string
+                - name: workload-annotations
+                  type: string
+            results:
+                - name: template
+                  type: string
+            spec: null
+            stepTemplate:
+                computeResources: {}
+                securityContext:
+                    allowPrivilegeEscalation: false
+                    capabilities:
+                        drop:
+                            - ALL
+                    runAsNonRoot: true
+                    runAsUser: 1001
+                    seccompProfile:
+                        type: RuntimeDefault
+            steps:
+                - computeResources: {}
+                  image: cxscssa.azurecr.io/tap-1-10-0/tap-packages@sha256:1d73533cf670d61b4a96d71e06dd19f110a360bce9bf90f51d9e0b5351fa302a
+                  name: create-template
+                  script: |
+                    #!/bin/bash
+
+                    set -euo pipefail
+                    set +x
+                    ls -al $(workspaces.content.path)
+
+                    conv=$(cat $(workspaces.content.path)/app-config.yaml)
+
+                    if [[ '$(params.workload-labels)' == \$\(* ]]; then
+                      workload_labels=""
+                    else
+                      workload_labels='$(params.workload-labels)'
+                    fi
+
+                    if [[ '$(params.workload-annotations)' == \$\(* ]]; then
+                      workload_annotations=""
+                    else
+                      workload_annotations='$(params.workload-annotations)'
+                    fi
+
+                    cd `mktemp -d`
+
+                    cat <<EOF > $(workspaces.content.path)/appconfig.yaml
+                    ---
+                    apiVersion: apps/v1
+                    kind: StatefulSet
+                    metadata:
+                      name: $(params.workload-name)
+                      annotations:
+                        kapp.k14s.io/update-strategy: fallback-on-replace
+                        ootb.apps.tanzu.vmware.com/servicebinding-workload: "true"
+                        kapp.k14s.io/change-rule: upsert after upserting servicebinding.io/ServiceBindings
+                      labels:
+                        app.kubernetes.io/part-of: $(params.workload-name)
+                        apps.tanzu.vmware.com/auto-configure-actuators: "true"
+                        apps.tanzu.vmware.com/workload-type: statefulset
+                        app.kubernetes.io/component: run
+                        carto.run/workload-name: $(params.workload-name)
+                    spec:
+                      serviceName: $(params.workload-name)
+                      replicas: 1
+                      selector:
+                        matchLabels:
+                          app.kubernetes.io/component: run
+                          app.kubernetes.io/part-of: $(params.workload-name)
+                          apps.tanzu.vmware.com/auto-configure-actuators: "true"
+                          apps.tanzu.vmware.com/workload-type: statefulset
+                          carto.run/workload-name: $(params.workload-name)
+                          conventions.carto.run/framework: spring-boot
+                          tanzu.app.live.view: "true"
+                          tanzu.app.live.view.application.actuator.path: actuator
+                          tanzu.app.live.view.application.actuator.port: "8081"
+                          tanzu.app.live.view.application.flavours: spring-boot
+                          tanzu.app.live.view.application.name: $(params.workload-name)
+                      template:
+                        metadata:
+                          annotations:
+                            autoscaling.knative.dev/minScale: "1"
+                            boot.spring.io/actuator: http://:8081/actuator
+                            boot.spring.io/version: 2.7.12
+                            conventions.carto.run/applied-conventions: |-
+                              spring-boot-convention/auto-configure-actuators-check
+                              spring-boot-convention/is-native-app-check
+                              spring-boot-convention/spring-boot
+                              spring-boot-convention/spring-boot-graceful-shutdown
+                              spring-boot-convention/spring-boot-web
+                              spring-boot-convention/spring-boot-actuator
+                              spring-boot-convention/spring-boot-actuator-probes
+                              spring-boot-convention/app-live-view-appflavour-check
+                              spring-boot-convention/app-live-view-connector-boot
+                              spring-boot-convention/app-live-view-appflavours-boot
+                            developer.conventions/target-containers: workload
+                            replicas: "1"
+                          labels:
+                            app.kubernetes.io/component: run
+                            app.kubernetes.io/part-of: $(params.workload-name)
+                            apps.tanzu.vmware.com/auto-configure-actuators: "true"
+                            apps.tanzu.vmware.com/workload-type: statefulset
+                            carto.run/workload-name: $(params.workload-name)
+                            conventions.carto.run/framework: spring-boot
+                            tanzu.app.live.view: "true"
+                            tanzu.app.live.view.application.actuator.path: actuator
+                            tanzu.app.live.view.application.actuator.port: "8081"
+                            tanzu.app.live.view.application.flavours: spring-boot
+                            tanzu.app.live.view.application.name: $(params.workload-name)
+                        spec:
+                          containers:
+                            - env:
+                                - name: JAVA_TOOL_OPTIONS
+                                  value: -Dmanagement.endpoint.health.probes.add-additional-paths="true" -Dmanagement.endpoint.health.show-details="always" -Dmanagement.endpoints.web.base-path="/actuator" -Dmanagement.endpoints.web.exposure.include="*" -Dmanagement.health.probes.enabled="true" -Dmanagement.server.port="8081" -Dserver.port="8080" -Dserver.shutdown.grace-period="24s"
+                              image: cxscssa.azurecr.io/tap-build/workloads/ss-friday-java-web-app-jeremy@sha256:142e9b64643538b6dc04ce72dab0335c033117389a0bd4e31bba7960a1e14acd
+                              livenessProbe:
+                                httpGet:
+                                  path: /livez
+                                  port: 8080
+                                  scheme: HTTP
+                              name: workload
+                              ports:
+                                - containerPort: 8080
+                                  protocol: TCP
+                              readinessProbe:
+                                httpGet:
+                                  path: /readyz
+                                  port: 8080
+                                  scheme: HTTP
+                              resources: {}
+                              securityContext:
+                                allowPrivilegeEscalation: false
+                                capabilities:
+                                  drop:
+                                    - ALL
+                                runAsNonRoot: true
+                                runAsUser: 1000
+                                seccompProfile:
+                                  type: RuntimeDefault
+                              startupProbe:
+                                httpGet:
+                                  path: /readyz
+                                  port: 8080
+                                  scheme: HTTP
+                          serviceAccountName: default
+                          volumemounts:
+                            - mountPath: /usr/share/nginx/html
+                              name: www
+                        volumeClaimTemplates:
+                          - metadata:
+                              name: www
+                            spec:
+                              accessModes:
+                                - ReadWriteOnce
+                              resources:
+                                requests:
+                                  storage: 8Gi
+                            storageClassName: default
+                    ---
+                    apiVersion: v1
+                    kind: Service
+                    metadata:
+                      name: $(params.workload-name)
+                      labels:
+                        app.kubernetes.io/part-of: $(params.workload-name)
+                        apps.tanzu.vmware.com/auto-configure-actuators: "true"
+                        apps.tanzu.vmware.com/workload-type: statefulset
+                        app.kubernetes.io/component: run
+                        carto.run/workload-name: $(params.workload-name)
+                    spec:
+                      selector:
+                        app.kubernetes.io/component: run
+                        app.kubernetes.io/part-of: $(params.workload-name)
+                        apps.tanzu.vmware.com/auto-configure-actuators: "true"
+                        apps.tanzu.vmware.com/workload-type: statefulset
+                        carto.run/workload-name: $(params.workload-name)
+                        conventions.carto.run/framework: spring-boot
+                        tanzu.app.live.view: "true"
+                        tanzu.app.live.view.application.actuator.path: actuator
+                        tanzu.app.live.view.application.actuator.port: "8081"
+                        tanzu.app.live.view.application.flavours: spring-boot
+                        tanzu.app.live.view.application.name: $(params.workload-name)
+                      ports:
+                        - targetPort: 8080
+                          port: 8080
+                          name: http
+                    ---
+                    apiVersion: networking.k8s.io/v1
+                    kind: Ingress
+                    metadata:
+                      name: $(params.workload-name)
+                      annotations:
+                        projectcontour.io/tls-cert-namespace: kube-system
+                        ingress.kubernetes.io/force-ssl-redirect: "true"
+                        kubernetes.io/ingress.class: contour
+                        kapp.k14s.io/change-rule: upsert after upserting Services
+                      labels:
+                        app.kubernetes.io/part-of: $(params.workload-name)
+                        apps.tanzu.vmware.com/auto-configure-actuators: "true"
+                        apps.tanzu.vmware.com/workload-type: statefulset
+                        app.kubernetes.io/component: run
+                        carto.run/workload-name: $(params.workload-name)
+                    spec:
+                      tls:
+                        - secretName: wildcard-cert
+                          hosts:
+                            - $(params.workload-name)
+                      rules:
+                        - host: $(params.workload-name)
+                          http:
+                            paths:
+                              - pathType: Prefix
+                                path: /
+                                backend:
+                                  service:
+                                    name: $(params.workload-name) 
+                                    port:
+                                      number: 8080
+                    EOF
+                    
+                    rm $(workspaces.content.path)/app-config.yaml
+                    cat $(workspaces.content.path)/appconfig.yaml
+          workspaces:
+            - name: content
+              workspace: shared-data
+        - name: store
+          params:
+            - name: workload-name
+              value: $(params.workload-name)
+          runAfter:
+            - statefulset-template
+          taskRef:
+            kind: Task
+            name: store-content-oci
+          workspaces:
+            - name: input
+              workspace: shared-data
+        - name: add-overlays
+          params:
+            - name: workload-name
+              value: $(params.workload-name)
+          runAfter:
+            - store
+          taskSpec:
+            metadata: {}
+            params:
+              - name: workload-name
+                type: string
+            results:
+              - name: overlays
+                type: string
+              - name: values
+                type: string
+            spec: null
+            stepTemplate:
+              computeResources: {}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1001
+                seccompProfile:
+                  type: RuntimeDefault
+            steps:
+              - computeResources: {}
+                image: cxscssa.azurecr.io/tap-1-10-0/tap-packages@sha256:1d73533cf670d61b4a96d71e06dd19f110a360bce9bf90f51d9e0b5351fa302a
+                name: write-file
+                script: |
+                  #!/bin/bash
+                  set -euo pipefail
+                  set -x
+                  
+                  cat <<EOF > $(workspaces.content.path)/statefulset-template-overlays.yaml
+                  ---
+                  EOF
+                  
+                  cat <<EOF > $(workspaces.content.path)/statefulset-template-values.yaml
+                  ---
+                  EOF
+                  
+                  echo "$(workspaces.content.path)/statefulset-template-overlays.yaml" | tee $(results.overlays.path)
+                  echo "$(workspaces.content.path)/statefulset-template-values.yaml" | tee $(results.values.path)
+          workspaces:
+            - name: content
+              workspace: overlay-data
+        - name: store-overlay
+          params:
+            - name: workload-name
+              value: $(params.workload-name)
+          runAfter:
+            - add-overlays
+          taskRef:
+            kind: Task
+            name: store-content-oci
+          workspaces:
+            - name: input
+              workspace: overlay-data
+    workspaces:
+        - description: |
+            Used to store the Conventions PodIntent and generated config files.
+          name: shared-data
+        - description: |
+            Used to store generated YTT files.
+          name: overlay-data
