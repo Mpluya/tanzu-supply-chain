@@ -43,7 +43,7 @@ metadata:
     packaging.carvel.dev/package-ClusterRole: git-writer-component-tap-install-cluster-role
     packaging.carvel.dev/package-ClusterRoleBinding: git-writer-component-tap-install-cluster-rolebinding
     packaging.carvel.dev/package-ServiceAccount: git-writer-component-tap-install-sa
-    ext.packaging.carvel.dev/ytt-paths-from-secret-name.99: tap-pkgi-overlay-secret
+    ext.packaging.carvel.dev/ytt-paths-from-secret-name.99: tolerations-overlay-secret
   name: git-writer-component
   namespace: tap-install
 spec:

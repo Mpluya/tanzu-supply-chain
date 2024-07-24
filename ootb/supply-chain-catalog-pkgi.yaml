@@ -43,7 +43,7 @@ metadata:
     packaging.carvel.dev/package-ClusterRole: supply-chain-catalog-tap-install-cluster-role
     packaging.carvel.dev/package-ClusterRoleBinding: supply-chain-catalog-tap-install-cluster-rolebinding
     packaging.carvel.dev/package-ServiceAccount: supply-chain-catalog-tap-install-sa
-    ext.packaging.carvel.dev/ytt-paths-from-secret-name.99: tap-pkgi-overlay-secret
+    ext.packaging.carvel.dev/ytt-paths-from-secret-name.99: tolerations-overlay-secret
   name: supply-chain-catalog
   namespace: tap-install
 spec:

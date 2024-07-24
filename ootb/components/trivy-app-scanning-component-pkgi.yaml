@@ -52,7 +52,7 @@ metadata:
     tkg.tanzu.vmware.com/tanzu-package-ClusterRole: trivy-scanning-component-tap-install-cluster-role
     tkg.tanzu.vmware.com/tanzu-package-ClusterRoleBinding: trivy-scanning-component-tap-install-cluster-rolebinding
     tkg.tanzu.vmware.com/tanzu-package-ServiceAccount: trivy-scanning-component-tap-install-sa
-    ext.packaging.carvel.dev/ytt-paths-from-secret-name.99: tap-pkgi-overlay-secret
+    ext.packaging.carvel.dev/ytt-paths-from-secret-name.99: tolerations-overlay-secret
   name: trivy-scanning-component
   namespace: tap-install
 spec:
